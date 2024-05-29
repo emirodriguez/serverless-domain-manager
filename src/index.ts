@@ -340,29 +340,33 @@ class ServerlessCustomDomain {
    * Wraps creation of basepath mapping and adds domain name info as output to cloudformation stack
    */
   public async setupBasePathMappings (): Promise<void> {
-    await Promise.all(this.domains.map(async (domain) => {
-      domain.apiId = await this.cloudFormationWrapper.findApiId(domain.apiType);
+    try {
+      for await (const domain of this.domains) {
+        domain.apiId = await this.cloudFormationWrapper.findApiId(
+          domain.apiType
+        );
 
-      const apiGateway = this.getApiGateway(domain);
-      const mappings = await apiGateway.getBasePathMappings(domain);
+        const apiGateway = this.getApiGateway(domain);
+        const mappings = await apiGateway.getBasePathMappings(domain);
 
-      const filteredMappings = mappings.filter((mapping) => {
-        if (domain.allowPathMatching) {
-          return mapping.basePath === domain.basePath;
+        const filteredMappings = mappings.filter((mapping) => {
+          if (domain.allowPathMatching) {
+            return mapping.basePath === domain.basePath;
+          }
+          return mapping.apiId === domain.apiId;
+        });
+        domain.apiMapping = filteredMappings ? filteredMappings[0] : null;
+        domain.domainInfo = await apiGateway.getCustomDomain(domain, false);
+
+        if (!domain.apiMapping) {
+          await apiGateway.createBasePathMapping(domain);
+        } else {
+          await apiGateway.updateBasePathMapping(domain);
         }
-        return mapping.apiId === domain.apiId;
-      });
-      domain.apiMapping = filteredMappings ? filteredMappings[0] : null;
-      domain.domainInfo = await apiGateway.getCustomDomain(domain, false);
-
-      if (!domain.apiMapping) {
-        await apiGateway.createBasePathMapping(domain);
-      } else {
-        await apiGateway.updateBasePathMapping(domain);
       }
-    })).finally(() => {
+    } finally {
       Logging.printDomainSummary(this.domains);
-    });
+    }
   }
 
   /**
